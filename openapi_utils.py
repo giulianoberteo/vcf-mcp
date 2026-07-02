@@ -44,8 +44,11 @@ def _resolve_schema(root: dict, schema: Any, seen: set | None = None, depth: int
     if isinstance(schema, dict):
         if "$ref" in schema:
             ref = schema["$ref"]
+            # Some VCF schemas reference themselves (a Resource can contain a
+            # list of related Resources, etc.), so without this guard we'd
+            # recurse forever. Past max_depth we just leave a named pointer
+            # instead of expanding further — plenty for a model to work with.
             if ref in seen or depth >= max_depth:
-                # Avoid infinite recursion / huge output; leave a pointer instead.
                 return {"$ref_name": ref.split("/")[-1]}
             target = _resolve_ref(root, ref)
             return _resolve_schema(root, target, seen | {ref}, depth + 1, max_depth)
@@ -72,6 +75,10 @@ def _resolve_schema(root: dict, schema: Any, seen: set | None = None, depth: int
 
 
 def _normalize_swagger2(spec: dict) -> dict:
+    """Fleet Management ships as Swagger 2.0, where the request body is just
+    another entry in "parameters" with in: "body" — there's no separate
+    requestBody concept like in OpenAPI 3. We pull it out here so downstream
+    code only ever has to deal with one shape (see module docstring)."""
     operations = []
     for path, methods in spec.get("paths", {}).items():
         # Path-level parameters (shared across methods) sometimes appear here
@@ -123,6 +130,10 @@ def _normalize_swagger2(spec: dict) -> dict:
 
 
 def _normalize_openapi3(spec: dict) -> dict:
+    """VCF Operations ships as OpenAPI 3.0, where the body lives under its own
+    requestBody.content["application/json"].schema instead of being mixed in
+    with the other parameters. Same end result as the Swagger 2 branch above,
+    just a different starting shape to unpack."""
     operations = []
     for path, methods in spec.get("paths", {}).items():
         path_level_params = methods.get("parameters", [])

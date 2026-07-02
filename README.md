@@ -1,15 +1,26 @@
-# vcf-fleet-api MCP Server
+# vcf-mcp
 
-A Python MCP server that dynamically constructs and executes API calls against
-two VMware Cloud Foundation Operations specs, without pre-generating a tool
-per endpoint:
+Talk to your VMware Cloud Foundation lab or environment from Claude — ask
+about resource health, pull active alerts, manage certificates, or drive
+lifecycle operations — without hand-writing a single API integration.
+
+`vcf-mcp` is a Python [MCP](https://modelcontextprotocol.io) server that
+exposes two VCF Operations REST APIs to any MCP-compatible client (Claude
+Desktop, Claude Code, etc.) by reading their OpenAPI/Swagger specs directly,
+rather than shipping a hand-coded wrapper per endpoint:
 
 - **`fleet`** — VCF Operations Fleet Management API (Swagger 2.0, 106 operations)
 - **`vcf-ops`** — VCF Operations API (OpenAPI 3.0, 370 operations)
 
+Between the two specs that's 476 operations covering nearly everything you'd
+otherwise do through the VCF Operations UI — resource and alert management,
+certificate operations, LCM/environment lifecycle, auth administration, and
+more — all reachable through natural-language requests.
+
 Both spec files ship inside `specs/` and are parsed and normalized at startup
 into one common shape, so the server logic doesn't care which spec format an
-operation came from.
+operation came from — see `openapi_utils.py` if you're curious how that
+normalization works.
 
 ## How it works
 
@@ -80,9 +91,12 @@ Add to your `claude_desktop_config.json`:
 ```json
 {
   "mcpServers": {
-    "vcf-fleet-api": {
-      "command": "python",
-      "args": ["/absolute/path/to/vcf-mcp/server.py"],
+    "vcf-mcp": {
+      "command": "uv",
+      "args": [
+        "--directory", "/absolute/path/to/vcf-mcp",
+        "run", "/absolute/path/to/vcf-mcp/server.py"
+      ],
       "env": {
         "FLEET_BASE_URL": "https://your-fleet-management-host",
         "FLEET_USER": "admin@local",

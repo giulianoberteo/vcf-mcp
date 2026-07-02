@@ -2,6 +2,17 @@
 
 All notable changes to this project are documented in this file.
 
+## [0.2.3] - 2026-07-02
+
+### Changed
+- Added explanatory comments throughout `server.py` and `openapi_utils.py`
+  covering the non-obvious "why" behind auth handling, caching, schema
+  recursion limits, and Swagger 2 vs OpenAPI 3 body-shape differences.
+- Rewrote the README intro with a proper project description — what the
+  server does, why it exists, and what it makes reachable — and corrected
+  the Claude Desktop config example to match the actual `uv`-based launch
+  command and `vcf-mcp` server name.
+
 ## [0.2.2] - 2026-07-02
 
 ### Fixed

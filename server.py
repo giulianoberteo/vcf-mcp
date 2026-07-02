@@ -55,6 +55,10 @@ from openapi_utils import load_and_normalize_spec
 
 SPEC_DIR = Path(__file__).parent / "specs"
 
+# Everything the server needs to know about each API lives here — the spec
+# file to parse, where to find its base URL/credentials, and which auth
+# scheme to use. The two VCF products don't agree on how they want to be
+# authenticated (see _build_auth_header below), so each entry says how.
 SPECS = {
     "fleet": {
         "file": SPEC_DIR / "fleet-management-api-docs.json",
@@ -83,17 +87,24 @@ def _verify_ssl(spec_name: str) -> bool:
 
 TIMEOUT = float(os.environ.get("API_TIMEOUT_SECONDS", "30"))
 
+# Parsed/normalized specs are expensive to build (vcf-ops alone is ~370
+# operations with nested $ref schemas), so we only do it once per spec and
+# keep the result around for the life of the process.
 _cache: dict[str, dict] = {}
 
-# In-memory only — acquired once per server lifetime, never persisted to disk.
+# OpsTokens are valid for 6 hours and refresh on use, so there's no reason to
+# re-acquire one on every call — we grab it once and hold it in memory for as
+# long as the server runs. This is never written to disk.
 _ops_token_cache: dict[str, str] = {}
 
 
 def _acquire_ops_token(spec_name: str, base_url: str, user: str, password: str) -> str:
-    """POST to the vcf-ops token-acquire endpoint and cache the result in memory."""
+    """Exchange vcf-ops credentials for a short-lived OpsToken and cache it in memory."""
     if spec_name in _ops_token_cache:
         return _ops_token_cache[spec_name]
     cfg = SPECS[spec_name]
+    # authSource is only relevant for LDAP-backed accounts — omit it entirely
+    # for local users, or the API will reject the login.
     auth_source = os.environ.get(cfg["auth_source_env"], "")
     body: dict[str, str] = {"username": user, "password": password}
     if auth_source:
@@ -111,7 +122,8 @@ def _acquire_ops_token(spec_name: str, base_url: str, user: str, password: str) 
 
 
 def _build_auth_header(spec_name: str, base_url: str) -> dict[str, str]:
-    """Derive the Authorization header for a spec from its configured credentials."""
+    """Turn the configured username/password for a spec into an Authorization
+    header, using whichever scheme that particular API actually expects."""
     cfg = SPECS[spec_name]
     user = os.environ.get(cfg["user_env"], "")
     password = os.environ.get(cfg["password_env"], "")
@@ -122,6 +134,8 @@ def _build_auth_header(spec_name: str, base_url: str) -> dict[str, str]:
         )
 
     if cfg["auth"] == "basic":
+        # Fleet Management has no token-acquire endpoint of its own — it just
+        # wants plain HTTP Basic on every request. See Broadcom KB 409715.
         encoded = base64.b64encode(f"{user}:{password}".encode()).decode()
         return {"Authorization": f"Basic {encoded}"}
 
@@ -144,6 +158,8 @@ def _get_operation(spec_name: str, operation_id: str) -> dict:
     norm = _get_spec(spec_name)
     op = norm["by_operation_id"].get(operation_id)
     if not op:
+        # The model is almost certainly guessing an operation_id instead of
+        # having called search_endpoints first — point it back there.
         raise ValueError(
             f"operation_id '{operation_id}' not found in spec '{spec_name}'. "
             f"Use search_endpoints('{spec_name}', ...) to find the correct operation_id."
@@ -195,6 +211,9 @@ def search_endpoints(spec: str, query: str, limit: int = 15) -> list[dict]:
     q = query.lower().strip()
     scored = []
     for op in norm["operations"]:
+        # Cheap relevance signal: how many times the query shows up across
+        # id/path/summary/tags. Good enough for "find the right endpoint out
+        # of a few hundred" — no need for real ranking here.
         haystack = " ".join([
             op["operation_id"] or "",
             op["path"],
@@ -276,7 +295,8 @@ def call_api(
     body = body or {}
     extra_headers = extra_headers or {}
 
-    # Validate + substitute path parameters
+    # Fail loudly and early if a required {placeholder} wasn't supplied,
+    # rather than sending a half-built URL and getting a confusing 404 back.
     path_template = op["path"]
     missing = []
     for p in op["parameters"]:
@@ -292,22 +312,28 @@ def call_api(
     for name, value in path_params.items():
         resolved_path = resolved_path.replace("{" + name + "}", str(value))
 
+    # Belt and braces: catch any leftover {placeholder} the caller forgot
+    # about, or a typo'd param name that never matched the template.
     if "{" in resolved_path:
         raise ValueError(
             f"Unresolved path placeholders remain in '{resolved_path}'. "
             f"Provide all required path_params for {operation_id}."
         )
 
+    # server_prefix is the API's base path (e.g. "/suite-api") pulled from
+    # the spec itself — the caller only has to worry about the host.
     url = base_url.rstrip("/") + norm["server_prefix"] + resolved_path
 
     headers = {"Accept": "application/json"}
     headers.update(_build_auth_header(spec, base_url))
-    headers.update(extra_headers)
+    headers.update(extra_headers)  # let the caller override anything above if truly needed
 
     request_kwargs: dict[str, Any] = {
         "params": query_params,
         "headers": headers,
     }
+    # Only attach a JSON body for operations that actually accept one —
+    # sending a stray body on a GET has caused rejected requests before.
     if op["request_body_schema"] is not None or op["method"] in ("POST", "PUT", "PATCH"):
         if body:
             request_kwargs["json"] = body
@@ -318,6 +344,8 @@ def call_api(
     try:
         parsed = resp.json()
     except ValueError:
+        # Not every endpoint returns JSON (e.g. plain-text or empty bodies) —
+        # fall back to raw text rather than blowing up on a non-error response.
         parsed = resp.text
 
     return {
