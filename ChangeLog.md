@@ -2,6 +2,17 @@
 
 All notable changes to this project are documented in this file.
 
+## [0.3.3] - 2026-07-02
+
+### Changed
+- Added a "How a spec file becomes a working API call" section to the
+  README explaining the actual mechanism — spec normalization
+  (`openapi_utils.load_and_normalize_spec`), keyword-based endpoint
+  discovery (`search_endpoints`/`get_endpoint`), and spec-driven HTTP
+  request construction (`call_api`) — so it's clear none of this is
+  generated or hand-wired per endpoint.
+- Fixed a stale "Both spec files" reference in the intro (now three specs).
+
 ## [0.3.2] - 2026-07-02
 
 ### Changed
