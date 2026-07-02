@@ -2,6 +2,19 @@
 
 All notable changes to this project are documented in this file.
 
+## [0.2.1] - 2026-07-02
+
+### Added
+- `FLEET_VERIFY_SSL` / `VCFOPS_VERIFY_SSL` env vars (default `false`) to skip
+  TLS certificate verification against self-signed lab VCF instances, mirroring
+  `config.VCF_OPS_VERIFY_SSL` in `privateAI-demo`. Without this, `vcf-ops` calls
+  failed with `CERTIFICATE_VERIFY_FAILED` against a real lab instance.
+
+### Verified
+- Live end-to-end test against a real lab: `fleet` (`getLcmHealthStatusV2UsingGET`)
+  and `vcf-ops` (`getResources`) both returned `200` using the new credential-based
+  auth flow.
+
 ## [0.2.0] - 2026-07-02
 
 ### Changed

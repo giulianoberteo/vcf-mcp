@@ -38,6 +38,9 @@ Required environment variables (see `.env.example`):
 - `FLEET_BASE_URL`, `FLEET_USER`, `FLEET_PASSWORD` — for the Fleet Management API
 - `VCFOPS_BASE_URL`, `VCFOPS_USER`, `VCFOPS_PASSWORD` — for the VCF Operations API
 - `VCFOPS_AUTH_SOURCE` (optional) — auth source display name, for LDAP `vcf-ops` users
+- `FLEET_VERIFY_SSL` / `VCFOPS_VERIFY_SSL` (optional, default `false`) — set to
+  `true` to enforce TLS certificate verification; defaults to skipping it since
+  lab VCF instances typically run self-signed certs
 - `API_TIMEOUT_SECONDS` (optional, default `30`)
 
 No API token is ever stored in `.env` — only a username/password pair per

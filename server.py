@@ -37,6 +37,10 @@ Configuration (environment variables):
   VCFOPS_PASSWORD       VCF Operations password
   VCFOPS_AUTH_SOURCE    optional; auth source display name for LDAP users
 
+  FLEET_VERIFY_SSL      optional, default false (lab VCF instances typically
+                        run self-signed certs); set "true" to verify
+  VCFOPS_VERIFY_SSL     optional, default false; set "true" to verify
+
   API_TIMEOUT_SECONDS   optional, default 30
 """
 import base64
@@ -58,6 +62,7 @@ SPECS = {
         "auth": "basic",
         "user_env": "FLEET_USER",
         "password_env": "FLEET_PASSWORD",
+        "verify_ssl_env": "FLEET_VERIFY_SSL",
     },
     "vcf-ops": {
         "file": SPEC_DIR / "vcf-ops-public-api.json",
@@ -66,8 +71,15 @@ SPECS = {
         "user_env": "VCFOPS_USER",
         "password_env": "VCFOPS_PASSWORD",
         "auth_source_env": "VCFOPS_AUTH_SOURCE",
+        "verify_ssl_env": "VCFOPS_VERIFY_SSL",
     },
 }
+
+
+def _verify_ssl(spec_name: str) -> bool:
+    """Defaults to False — lab VCF instances typically run self-signed certs.
+    Set <SPEC>_VERIFY_SSL=true to enforce verification."""
+    return os.environ.get(SPECS[spec_name]["verify_ssl_env"], "").strip().lower() == "true"
 
 TIMEOUT = float(os.environ.get("API_TIMEOUT_SECONDS", "30"))
 
@@ -86,7 +98,7 @@ def _acquire_ops_token(spec_name: str, base_url: str, user: str, password: str) 
     body: dict[str, str] = {"username": user, "password": password}
     if auth_source:
         body["authSource"] = auth_source
-    with httpx.Client(timeout=TIMEOUT) as client:
+    with httpx.Client(timeout=TIMEOUT, verify=_verify_ssl(spec_name)) as client:
         resp = client.post(
             f"{base_url.rstrip('/')}/suite-api/api/auth/token/acquire",
             json=body,
@@ -300,7 +312,7 @@ def call_api(
         if body:
             request_kwargs["json"] = body
 
-    with httpx.Client(timeout=TIMEOUT) as client:
+    with httpx.Client(timeout=TIMEOUT, verify=_verify_ssl(spec)) as client:
         resp = client.request(op["method"], url, **request_kwargs)
 
     try:
