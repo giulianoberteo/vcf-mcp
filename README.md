@@ -28,19 +28,29 @@ The typical flow a model follows: `search_endpoints` → `get_endpoint` → `cal
 
 ```bash
 cd vcf-mcp
+python3 -m venv .venv && source .venv/bin/activate  # requires Python 3.10+
 pip install -r requirements.txt
 cp .env.example .env   # then fill in real values
 ```
 
 Required environment variables (see `.env.example`):
 
-- `FLEET_BASE_URL`, `FLEET_API_TOKEN` — for the Fleet Management API
-- `VCFOPS_BASE_URL`, `VCFOPS_API_TOKEN` — for the VCF Operations API
+- `FLEET_BASE_URL`, `FLEET_USER`, `FLEET_PASSWORD` — for the Fleet Management API
+- `VCFOPS_BASE_URL`, `VCFOPS_USER`, `VCFOPS_PASSWORD` — for the VCF Operations API
+- `VCFOPS_AUTH_SOURCE` (optional) — auth source display name, for LDAP `vcf-ops` users
 - `API_TIMEOUT_SECONDS` (optional, default `30`)
 
-Tokens are sent as `Authorization: Bearer <token>` unless the value you
-provide already starts with `Bearer` or `Basic`, in which case it's sent
-as-is.
+No API token is ever stored in `.env` — only a username/password pair per
+spec. `call_api` derives the `Authorization` header from those credentials
+at request time, per each API's own auth scheme:
+
+- **`fleet`** — HTTP Basic (`Authorization: Basic base64(user:password)`),
+  rebuilt from credentials on every call. See
+  [Broadcom KB 409715](https://knowledge.broadcom.com/external/article/409715/how-to-authorize-vcf-operations-fleet-ma.html).
+- **`vcf-ops`** — exchanges the username/password for a short-lived OpsToken
+  via `POST /api/auth/token/acquire`, then caches that token **in memory
+  only** (never written to disk) for the life of the process. Mirrors
+  `_acquire_ops_token` in `privateAI-demo/mcp/server.py`.
 
 ## Running standalone
 
@@ -62,9 +72,11 @@ Add to your `claude_desktop_config.json`:
       "args": ["/absolute/path/to/vcf-mcp/server.py"],
       "env": {
         "FLEET_BASE_URL": "https://your-fleet-management-host",
-        "FLEET_API_TOKEN": "your-fleet-api-token",
+        "FLEET_USER": "admin@local",
+        "FLEET_PASSWORD": "your-fleet-password",
         "VCFOPS_BASE_URL": "https://your-vcf-ops-host",
-        "VCFOPS_API_TOKEN": "your-vcf-ops-api-token"
+        "VCFOPS_USER": "your-vcf-ops-username",
+        "VCFOPS_PASSWORD": "your-vcf-ops-password"
       }
     }
   }

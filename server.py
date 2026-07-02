@@ -14,13 +14,32 @@ exposes a small, fixed set of tools that let a model:
                           path/query params, JSON body, auth header) from
                           the spec and execute it
 
+No API tokens are stored anywhere — both specs authenticate from a
+username/password pair supplied via environment variables, and any token
+needed on the wire is derived at call time (and cached in memory only,
+never written to disk):
+
+  - "fleet"   authenticates with HTTP Basic (base64 of user:password),
+              built fresh from credentials on every call. See
+              https://knowledge.broadcom.com/external/article/409715
+  - "vcf-ops" authenticates by exchanging user/password for a short-lived
+              OpsToken via POST /api/auth/token/acquire, then caching that
+              token in memory for the life of the process (mirrors
+              _acquire_ops_token in privateAI-demo/mcp/server.py).
+
 Configuration (environment variables):
-  FLEET_BASE_URL     e.g. https://fleet.example.com        (required to call fleet endpoints)
-  FLEET_API_TOKEN    Bearer/API token sent in the Authorization header
-  VCFOPS_BASE_URL    e.g. https://vcf-ops.example.com       (required to call vcf-ops endpoints)
-  VCFOPS_API_TOKEN   Bearer/API token sent in the Authorization header
-  API_TIMEOUT_SECONDS  optional, default 30
+  FLEET_BASE_URL       e.g. https://fleet.example.com   (required to call fleet endpoints)
+  FLEET_USER           Fleet Management username, e.g. admin@local
+  FLEET_PASSWORD       Fleet Management password
+
+  VCFOPS_BASE_URL      e.g. https://vcf-ops.example.com  (required to call vcf-ops endpoints)
+  VCFOPS_USER           VCF Operations username
+  VCFOPS_PASSWORD       VCF Operations password
+  VCFOPS_AUTH_SOURCE    optional; auth source display name for LDAP users
+
+  API_TIMEOUT_SECONDS   optional, default 30
 """
+import base64
 import os
 from pathlib import Path
 from typing import Any, Optional
@@ -36,18 +55,69 @@ SPECS = {
     "fleet": {
         "file": SPEC_DIR / "fleet-management-api-docs.json",
         "base_url_env": "FLEET_BASE_URL",
-        "token_env": "FLEET_API_TOKEN",
+        "auth": "basic",
+        "user_env": "FLEET_USER",
+        "password_env": "FLEET_PASSWORD",
     },
     "vcf-ops": {
         "file": SPEC_DIR / "vcf-ops-public-api.json",
         "base_url_env": "VCFOPS_BASE_URL",
-        "token_env": "VCFOPS_API_TOKEN",
+        "auth": "ops_token",
+        "user_env": "VCFOPS_USER",
+        "password_env": "VCFOPS_PASSWORD",
+        "auth_source_env": "VCFOPS_AUTH_SOURCE",
     },
 }
 
 TIMEOUT = float(os.environ.get("API_TIMEOUT_SECONDS", "30"))
 
 _cache: dict[str, dict] = {}
+
+# In-memory only — acquired once per server lifetime, never persisted to disk.
+_ops_token_cache: dict[str, str] = {}
+
+
+def _acquire_ops_token(spec_name: str, base_url: str, user: str, password: str) -> str:
+    """POST to the vcf-ops token-acquire endpoint and cache the result in memory."""
+    if spec_name in _ops_token_cache:
+        return _ops_token_cache[spec_name]
+    cfg = SPECS[spec_name]
+    auth_source = os.environ.get(cfg["auth_source_env"], "")
+    body: dict[str, str] = {"username": user, "password": password}
+    if auth_source:
+        body["authSource"] = auth_source
+    with httpx.Client(timeout=TIMEOUT) as client:
+        resp = client.post(
+            f"{base_url.rstrip('/')}/suite-api/api/auth/token/acquire",
+            json=body,
+            headers={"Accept": "application/json", "Content-Type": "application/json"},
+        )
+        resp.raise_for_status()
+        token = resp.json()["token"]
+    _ops_token_cache[spec_name] = token
+    return token
+
+
+def _build_auth_header(spec_name: str, base_url: str) -> dict[str, str]:
+    """Derive the Authorization header for a spec from its configured credentials."""
+    cfg = SPECS[spec_name]
+    user = os.environ.get(cfg["user_env"], "")
+    password = os.environ.get(cfg["password_env"], "")
+    if not user or not password:
+        raise ValueError(
+            f"{cfg['user_env']} and {cfg['password_env']} must both be set to call "
+            f"the '{spec_name}' API."
+        )
+
+    if cfg["auth"] == "basic":
+        encoded = base64.b64encode(f"{user}:{password}".encode()).decode()
+        return {"Authorization": f"Basic {encoded}"}
+
+    if cfg["auth"] == "ops_token":
+        token = _acquire_ops_token(spec_name, base_url, user, password)
+        return {"Authorization": f"OpsToken {token}"}
+
+    raise ValueError(f"Unknown auth type '{cfg['auth']}' for spec '{spec_name}'")
 
 
 def _get_spec(name: str) -> dict:
@@ -77,7 +147,7 @@ def list_specs() -> dict:
     """
     List the API specs available on this server ('fleet' and 'vcf-ops'), including
     title, version, how many operations each has, and whether the required base URL
-    and API token environment variables are currently configured.
+    and credential environment variables are currently configured.
     """
     out = {}
     for name, cfg in SPECS.items():
@@ -86,10 +156,12 @@ def list_specs() -> dict:
             "title": norm["title"],
             "version": norm["version"],
             "endpoint_count": len(norm["operations"]),
+            "auth": cfg["auth"],
             "base_url_env": cfg["base_url_env"],
-            "token_env": cfg["token_env"],
+            "user_env": cfg["user_env"],
+            "password_env": cfg["password_env"],
             "base_url_configured": bool(os.environ.get(cfg["base_url_env"])),
-            "token_configured": bool(os.environ.get(cfg["token_env"])),
+            "credentials_configured": bool(os.environ.get(cfg["user_env"])) and bool(os.environ.get(cfg["password_env"])),
         }
     return out
 
@@ -216,10 +288,8 @@ def call_api(
 
     url = base_url.rstrip("/") + norm["server_prefix"] + resolved_path
 
-    token = os.environ.get(cfg["token_env"])
     headers = {"Accept": "application/json"}
-    if token:
-        headers["Authorization"] = token if token.lower().startswith(("bearer", "basic")) else f"Bearer {token}"
+    headers.update(_build_auth_header(spec, base_url))
     headers.update(extra_headers)
 
     request_kwargs: dict[str, Any] = {
