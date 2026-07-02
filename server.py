@@ -1,9 +1,10 @@
 """
-MCP server that dynamically constructs and executes API calls against two
-VMware Cloud Foundation Operations API specs:
+MCP server that dynamically constructs and executes API calls against three
+VMware Cloud Foundation API specs:
 
   - "fleet"    : VCF Operations Fleet Management API (Swagger 2.0)
   - "vcf-ops"  : VCF Operations API                   (OpenAPI 3.0)
+  - "sddc"     : VCF (SDDC Manager) API               (OpenAPI 3.0)
 
 Rather than generating one MCP tool per endpoint (300+ of them), this server
 exposes a small, fixed set of tools that let a model:
@@ -14,94 +15,51 @@ exposes a small, fixed set of tools that let a model:
                           path/query params, JSON body, auth header) from
                           the spec and execute it
 
-No API tokens are stored anywhere — both specs authenticate from a
+No API tokens are stored anywhere — every spec authenticates from a
 username/password pair supplied via environment variables, and any token
 needed on the wire is derived at call time (and cached in memory only,
 never written to disk):
 
-  - "fleet"   authenticates with HTTP Basic (base64 of user:password),
-              built fresh from credentials on every call. See
-              https://knowledge.broadcom.com/external/article/409715
+  - "fleet" authenticates with HTTP Basic (base64 of user:password),
+            built fresh from credentials on every call. See
+            https://knowledge.broadcom.com/external/article/409715
   - "vcf-ops" authenticates by exchanging user/password for a short-lived
               OpsToken via POST /api/auth/token/acquire, then caching that
-              token in memory for the life of the process (mirrors
-              _acquire_ops_token in privateAI-demo/mcp/server.py).
+              token in memory for the life of the process.
+  - "sddc"    authenticates by exchanging user/password for a bearer access
+              token via POST /v1/tokens, then caching that token in memory
+              for the life of the process (same acquire-once-and-cache
+              pattern as vcf-ops, just a different endpoint/response shape).
 
-Configuration (environment variables):
-  FLEET_BASE_URL       e.g. https://fleet.example.com   (required to call fleet endpoints)
-  FLEET_USER           Fleet Management username, e.g. admin@local
-  FLEET_PASSWORD       Fleet Management password
-
-  VCFOPS_BASE_URL      e.g. https://vcf-ops.example.com  (required to call vcf-ops endpoints)
-  VCFOPS_USER           VCF Operations username
-  VCFOPS_PASSWORD       VCF Operations password
-  VCFOPS_AUTH_SOURCE    optional; auth source display name for LDAP users
-
-  FLEET_VERIFY_SSL      optional, default false (lab VCF instances typically
-                        run self-signed certs); set "true" to verify
-  VCFOPS_VERIFY_SSL     optional, default false; set "true" to verify
-
-  API_TIMEOUT_SECONDS   optional, default 30
+See config.py for the full list of environment variables each spec reads
+(base URL, credentials, SSL verification) and how to add a new API spec.
 """
 import base64
 import os
-from pathlib import Path
 from typing import Any, Optional
 
 import httpx
 from mcp.server.fastmcp import FastMCP
 
+from config import SPECS, TIMEOUT, verify_ssl
 from openapi_utils import load_and_normalize_spec
-
-SPEC_DIR = Path(__file__).parent / "specs"
-
-# Everything the server needs to know about each API lives here — the spec
-# file to parse, where to find its base URL/credentials, and which auth
-# scheme to use. The two VCF products don't agree on how they want to be
-# authenticated (see _build_auth_header below), so each entry says how.
-SPECS = {
-    "fleet": {
-        "file": SPEC_DIR / "fleet-management-api-docs.json",
-        "base_url_env": "FLEET_BASE_URL",
-        "auth": "basic",
-        "user_env": "FLEET_USER",
-        "password_env": "FLEET_PASSWORD",
-        "verify_ssl_env": "FLEET_VERIFY_SSL",
-    },
-    "vcf-ops": {
-        "file": SPEC_DIR / "vcf-ops-public-api.json",
-        "base_url_env": "VCFOPS_BASE_URL",
-        "auth": "ops_token",
-        "user_env": "VCFOPS_USER",
-        "password_env": "VCFOPS_PASSWORD",
-        "auth_source_env": "VCFOPS_AUTH_SOURCE",
-        "verify_ssl_env": "VCFOPS_VERIFY_SSL",
-    },
-}
-
-
-def _verify_ssl(spec_name: str) -> bool:
-    """Defaults to False — lab VCF instances typically run self-signed certs.
-    Set <SPEC>_VERIFY_SSL=true to enforce verification."""
-    return os.environ.get(SPECS[spec_name]["verify_ssl_env"], "").strip().lower() == "true"
-
-TIMEOUT = float(os.environ.get("API_TIMEOUT_SECONDS", "30"))
 
 # Parsed/normalized specs are expensive to build (vcf-ops alone is ~370
 # operations with nested $ref schemas), so we only do it once per spec and
 # keep the result around for the life of the process.
 _cache: dict[str, dict] = {}
 
-# OpsTokens are valid for 6 hours and refresh on use, so there's no reason to
-# re-acquire one on every call — we grab it once and hold it in memory for as
-# long as the server runs. This is never written to disk.
-_ops_token_cache: dict[str, str] = {}
+# Both OpsTokens (6-hour validity, refreshed on use) and SDDC Manager access
+# tokens are cheap to hold onto for the life of the process, so there's no
+# reason to re-acquire one on every call. Keyed by spec name; never written
+# to disk.
+_token_cache: dict[str, str] = {}
 
 
 def _acquire_ops_token(spec_name: str, base_url: str, user: str, password: str) -> str:
     """Exchange vcf-ops credentials for a short-lived OpsToken and cache it in memory."""
-    if spec_name in _ops_token_cache:
-        return _ops_token_cache[spec_name]
+    if spec_name in _token_cache:
+        return _token_cache[spec_name]
     cfg = SPECS[spec_name]
     # authSource is only relevant for LDAP-backed accounts — omit it entirely
     # for local users, or the API will reject the login.
@@ -109,7 +67,7 @@ def _acquire_ops_token(spec_name: str, base_url: str, user: str, password: str) 
     body: dict[str, str] = {"username": user, "password": password}
     if auth_source:
         body["authSource"] = auth_source
-    with httpx.Client(timeout=TIMEOUT, verify=_verify_ssl(spec_name)) as client:
+    with httpx.Client(timeout=TIMEOUT, verify=verify_ssl(spec_name)) as client:
         resp = client.post(
             f"{base_url.rstrip('/')}/suite-api/api/auth/token/acquire",
             json=body,
@@ -117,7 +75,25 @@ def _acquire_ops_token(spec_name: str, base_url: str, user: str, password: str) 
         )
         resp.raise_for_status()
         token = resp.json()["token"]
-    _ops_token_cache[spec_name] = token
+    _token_cache[spec_name] = token
+    return token
+
+
+def _acquire_sddc_token(spec_name: str, base_url: str, user: str, password: str) -> str:
+    """Exchange SDDC Manager credentials for a bearer access token (POST
+    /v1/tokens) and cache it in memory. Same shape as _acquire_ops_token,
+    just a different endpoint and response field (accessToken, not token)."""
+    if spec_name in _token_cache:
+        return _token_cache[spec_name]
+    with httpx.Client(timeout=TIMEOUT, verify=verify_ssl(spec_name)) as client:
+        resp = client.post(
+            f"{base_url.rstrip('/')}/v1/tokens",
+            json={"username": user, "password": password},
+            headers={"Accept": "application/json", "Content-Type": "application/json"},
+        )
+        resp.raise_for_status()
+        token = resp.json()["accessToken"]
+    _token_cache[spec_name] = token
     return token
 
 
@@ -142,6 +118,10 @@ def _build_auth_header(spec_name: str, base_url: str) -> dict[str, str]:
     if cfg["auth"] == "ops_token":
         token = _acquire_ops_token(spec_name, base_url, user, password)
         return {"Authorization": f"OpsToken {token}"}
+
+    if cfg["auth"] == "bearer_token":
+        token = _acquire_sddc_token(spec_name, base_url, user, password)
+        return {"Authorization": f"Bearer {token}"}
 
     raise ValueError(f"Unknown auth type '{cfg['auth']}' for spec '{spec_name}'")
 
@@ -173,7 +153,7 @@ mcp = FastMCP("vcf-fleet-api")
 @mcp.tool()
 def list_specs() -> dict:
     """
-    List the API specs available on this server ('fleet' and 'vcf-ops'), including
+    List the API specs available on this server ('fleet', 'vcf-ops', and 'sddc'), including
     title, version, how many operations each has, and whether the required base URL
     and credential environment variables are currently configured.
     """
@@ -197,13 +177,13 @@ def list_specs() -> dict:
 @mcp.tool()
 def search_endpoints(spec: str, query: str, limit: int = 15) -> list[dict]:
     """
-    Search for API operations within a spec ('fleet' or 'vcf-ops') by keyword.
+    Search for API operations within a spec ('fleet', 'vcf-ops', or 'sddc') by keyword.
     Matches against operation_id, path, summary, and tags. Use this first to find
     the operation_id you need, then call get_endpoint for full details before
     calling call_api.
 
     Args:
-        spec: 'fleet' or 'vcf-ops'
+        spec: 'fleet', 'vcf-ops', or 'sddc'
         query: keyword(s) to search for, e.g. "certificate", "resources", "symptom"
         limit: max number of results to return (default 15)
     """
@@ -245,7 +225,7 @@ def get_endpoint(spec: str, operation_id: str) -> dict:
     exactly what to pass into call_api.
 
     Args:
-        spec: 'fleet' or 'vcf-ops'
+        spec: 'fleet', 'vcf-ops', or 'sddc'
         operation_id: the operation_id, as returned by search_endpoints
     """
     return _get_operation(spec, operation_id)
@@ -269,7 +249,7 @@ def call_api(
     Authorization header automatically from the configured API token env var.
 
     Args:
-        spec: 'fleet' or 'vcf-ops'
+        spec: 'fleet', 'vcf-ops', or 'sddc'
         operation_id: the operation_id, as returned by search_endpoints
         path_params: values for any {placeholders} in the URL path, e.g. {"id": "abc-123"}
         query_params: query string parameters, e.g. {"pageSize": 100}
@@ -338,7 +318,7 @@ def call_api(
         if body:
             request_kwargs["json"] = body
 
-    with httpx.Client(timeout=TIMEOUT, verify=_verify_ssl(spec)) as client:
+    with httpx.Client(timeout=TIMEOUT, verify=verify_ssl(spec)) as client:
         resp = client.request(op["method"], url, **request_kwargs)
 
     try:

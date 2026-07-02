@@ -5,17 +5,18 @@ about resource health, pull active alerts, manage certificates, or drive
 lifecycle operations — without hand-writing a single API integration.
 
 `vcf-mcp` is a Python [MCP](https://modelcontextprotocol.io) server that
-exposes two VCF Operations REST APIs to any MCP-compatible client (Claude
-Desktop, Claude Code, etc.) by reading their OpenAPI/Swagger specs directly,
-rather than shipping a hand-coded wrapper per endpoint:
+exposes three VCF REST APIs to any MCP-compatible client (Claude Desktop,
+Claude Code, etc.) by reading their OpenAPI/Swagger specs directly, rather
+than shipping a hand-coded wrapper per endpoint:
 
 - **`fleet`** — VCF Operations Fleet Management API (Swagger 2.0, 106 operations)
 - **`vcf-ops`** — VCF Operations API (OpenAPI 3.0, 370 operations)
+- **`sddc`** — VCF (SDDC Manager) API (OpenAPI 3.0, 375 operations)
 
-Between the two specs that's 476 operations covering nearly everything you'd
-otherwise do through the VCF Operations UI — resource and alert management,
-certificate operations, LCM/environment lifecycle, auth administration, and
-more — all reachable through natural-language requests.
+Across the three specs that's 851 operations covering nearly everything you'd
+otherwise do through the VCF UI — resource and alert management, certificate
+operations, LCM/environment lifecycle, domain/workload management, auth
+administration, and more — all reachable through natural-language requests.
 
 Both spec files ship inside `specs/` and are parsed and normalized at startup
 into one common shape, so the server logic doesn't care which spec format an
@@ -24,11 +25,11 @@ normalization works.
 
 ## How it works
 
-Instead of 476 individual MCP tools, this server exposes 4:
+Instead of 851 individual MCP tools, this server exposes 4:
 
 | Tool | Purpose |
 |---|---|
-| `list_specs()` | Shows both specs, endpoint counts, and whether credentials are configured |
+| `list_specs()` | Shows all specs, endpoint counts, and whether credentials are configured |
 | `search_endpoints(spec, query)` | Keyword search over operation_id / path / summary / tags |
 | `get_endpoint(spec, operation_id)` | Full parameter list + resolved request body JSON schema for one operation |
 | `call_api(spec, operation_id, path_params, query_params, body, extra_headers)` | Looks up the operation, substitutes path params into the URL, attaches query params and JSON body, adds the `Authorization` header, and executes the HTTP call |
@@ -59,9 +60,10 @@ Required environment variables (see `.env.example`):
 - `FLEET_BASE_URL`, `FLEET_USER`, `FLEET_PASSWORD` — for the Fleet Management API
 - `VCFOPS_BASE_URL`, `VCFOPS_USER`, `VCFOPS_PASSWORD` — for the VCF Operations API
 - `VCFOPS_AUTH_SOURCE` (optional) — auth source display name, for LDAP `vcf-ops` users
-- `FLEET_VERIFY_SSL` / `VCFOPS_VERIFY_SSL` (optional, default `false`) — set to
-  `true` to enforce TLS certificate verification; defaults to skipping it since
-  lab VCF instances typically run self-signed certs
+- `SDDC_BASE_URL`, `SDDC_USER`, `SDDC_PASSWORD` — for the SDDC Manager API
+- `FLEET_VERIFY_SSL` / `VCFOPS_VERIFY_SSL` / `SDDC_VERIFY_SSL` (optional, default
+  `false`) — set to `true` to enforce TLS certificate verification; defaults to
+  skipping it since lab VCF instances typically run self-signed certs
 - `API_TIMEOUT_SECONDS` (optional, default `30`)
 
 No API token is ever stored in `.env` — only a username/password pair per
@@ -75,6 +77,8 @@ at request time, per each API's own auth scheme:
   via `POST /api/auth/token/acquire`, then caches that token **in memory
   only** (never written to disk) for the life of the process. Mirrors
   `_acquire_ops_token` in `privateAI-demo/mcp/server.py`.
+- **`sddc`** — exchanges the username/password for a bearer access token via
+  `POST /v1/tokens`, then caches it in memory the same way as `vcf-ops`.
 
 ## Running standalone
 
@@ -103,7 +107,10 @@ Add to your `claude_desktop_config.json`:
         "FLEET_PASSWORD": "your-fleet-password",
         "VCFOPS_BASE_URL": "https://your-vcf-ops-host",
         "VCFOPS_USER": "your-vcf-ops-username",
-        "VCFOPS_PASSWORD": "your-vcf-ops-password"
+        "VCFOPS_PASSWORD": "your-vcf-ops-password",
+        "SDDC_BASE_URL": "https://your-sddc-manager-host",
+        "SDDC_USER": "administrator@vsphere.local",
+        "SDDC_PASSWORD": "your-sddc-password"
       }
     }
   }

@@ -2,6 +2,25 @@
 
 All notable changes to this project are documented in this file.
 
+## [0.3.0] - 2026-07-02
+
+### Added
+- New **`sddc`** spec: VCF (SDDC Manager) API, 375 operations, from
+  `specs/vmware-cloud-foundation.json`. Authenticates by exchanging
+  `SDDC_USER`/`SDDC_PASSWORD` for a bearer access token via `POST
+  /v1/tokens` (same acquire-once-and-cache-in-memory pattern as `vcf-ops`,
+  just a different endpoint/response shape — `accessToken` instead of
+  `token`). New env vars: `SDDC_BASE_URL`, `SDDC_USER`, `SDDC_PASSWORD`,
+  `SDDC_VERIFY_SSL`.
+- `config.py`: pulled `SPECS`, `TIMEOUT`, and `verify_ssl()` out of
+  `server.py` into a dedicated configuration module, so wiring in a new VCF
+  API only means adding a spec file + one `SPECS` entry — no changes to
+  request-building or MCP tool logic.
+
+### Verified
+- Live end-to-end against the lab: `sddc` (`getNtpConfiguration`) returned
+  `200` using the new bearer-token auth flow.
+
 ## [0.2.3] - 2026-07-02
 
 ### Changed
