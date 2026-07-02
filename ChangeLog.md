@@ -2,6 +2,12 @@
 
 All notable changes to this project are documented in this file.
 
+## [0.3.1] - 2026-07-02
+
+### Changed
+- Renamed the FastMCP server instance from the stale `"vcf-fleet-api"` to
+  `"vcf-mcp"`, matching the project/repo name.
+
 ## [0.3.0] - 2026-07-02
 
 ### Added

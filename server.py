@@ -147,7 +147,7 @@ def _get_operation(spec_name: str, operation_id: str) -> dict:
     return op
 
 
-mcp = FastMCP("vcf-fleet-api")
+mcp = FastMCP("vcf-mcp")
 
 
 @mcp.tool()
