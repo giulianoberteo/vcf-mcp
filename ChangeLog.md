@@ -2,6 +2,19 @@
 
 All notable changes to this project are documented in this file.
 
+## [0.3.2] - 2026-07-02
+
+### Changed
+- Finished externalizing per-spec constants into `config.py` — the server
+  name (`SERVER_NAME`, overridable via `MCP_SERVER_NAME`), each spec's
+  token-acquire path (`token_path`), the response field the token comes
+  back in (`token_response_field`), and the `Authorization` header scheme
+  (`auth_scheme`: `Basic`/`OpsToken`/`Bearer`) are now all config, not
+  literals in `server.py`.
+- Collapsed `_acquire_ops_token` and `_acquire_sddc_token` into a single
+  `_acquire_token`, since both were the same POST-credentials-cache-token
+  shape once the path/field name moved into config.
+
 ## [0.3.1] - 2026-07-02
 
 ### Changed

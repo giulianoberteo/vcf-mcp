@@ -41,7 +41,7 @@ from typing import Any, Optional
 import httpx
 from mcp.server.fastmcp import FastMCP
 
-from config import SPECS, TIMEOUT, verify_ssl
+from config import SERVER_NAME, SPECS, TIMEOUT, verify_ssl
 from openapi_utils import load_and_normalize_spec
 
 # Parsed/normalized specs are expensive to build (vcf-ops alone is ~370
@@ -56,43 +56,29 @@ _cache: dict[str, dict] = {}
 _token_cache: dict[str, str] = {}
 
 
-def _acquire_ops_token(spec_name: str, base_url: str, user: str, password: str) -> str:
-    """Exchange vcf-ops credentials for a short-lived OpsToken and cache it in memory."""
+def _acquire_token(spec_name: str, base_url: str, user: str, password: str) -> str:
+    """Exchange credentials for a short-lived token via this spec's configured
+    token_path, and cache it in memory. vcf-ops and sddc both work this way —
+    POST username/password, pull the token back out of a named response field
+    — just at different paths with different field names, both in config."""
     if spec_name in _token_cache:
         return _token_cache[spec_name]
     cfg = SPECS[spec_name]
-    # authSource is only relevant for LDAP-backed accounts — omit it entirely
-    # for local users, or the API will reject the login.
-    auth_source = os.environ.get(cfg["auth_source_env"], "")
     body: dict[str, str] = {"username": user, "password": password}
+    # authSource is only relevant for LDAP-backed accounts — omit it entirely
+    # for local users, or the API will reject the login. Only vcf-ops has
+    # this concept.
+    auth_source = os.environ.get(cfg.get("auth_source_env", ""), "")
     if auth_source:
         body["authSource"] = auth_source
     with httpx.Client(timeout=TIMEOUT, verify=verify_ssl(spec_name)) as client:
         resp = client.post(
-            f"{base_url.rstrip('/')}/suite-api/api/auth/token/acquire",
+            f"{base_url.rstrip('/')}{cfg['token_path']}",
             json=body,
             headers={"Accept": "application/json", "Content-Type": "application/json"},
         )
         resp.raise_for_status()
-        token = resp.json()["token"]
-    _token_cache[spec_name] = token
-    return token
-
-
-def _acquire_sddc_token(spec_name: str, base_url: str, user: str, password: str) -> str:
-    """Exchange SDDC Manager credentials for a bearer access token (POST
-    /v1/tokens) and cache it in memory. Same shape as _acquire_ops_token,
-    just a different endpoint and response field (accessToken, not token)."""
-    if spec_name in _token_cache:
-        return _token_cache[spec_name]
-    with httpx.Client(timeout=TIMEOUT, verify=verify_ssl(spec_name)) as client:
-        resp = client.post(
-            f"{base_url.rstrip('/')}/v1/tokens",
-            json={"username": user, "password": password},
-            headers={"Accept": "application/json", "Content-Type": "application/json"},
-        )
-        resp.raise_for_status()
-        token = resp.json()["accessToken"]
+        token = resp.json()[cfg["token_response_field"]]
     _token_cache[spec_name] = token
     return token
 
@@ -113,15 +99,11 @@ def _build_auth_header(spec_name: str, base_url: str) -> dict[str, str]:
         # Fleet Management has no token-acquire endpoint of its own — it just
         # wants plain HTTP Basic on every request. See Broadcom KB 409715.
         encoded = base64.b64encode(f"{user}:{password}".encode()).decode()
-        return {"Authorization": f"Basic {encoded}"}
+        return {"Authorization": f"{cfg['auth_scheme']} {encoded}"}
 
-    if cfg["auth"] == "ops_token":
-        token = _acquire_ops_token(spec_name, base_url, user, password)
-        return {"Authorization": f"OpsToken {token}"}
-
-    if cfg["auth"] == "bearer_token":
-        token = _acquire_sddc_token(spec_name, base_url, user, password)
-        return {"Authorization": f"Bearer {token}"}
+    if cfg["auth"] == "token_acquire":
+        token = _acquire_token(spec_name, base_url, user, password)
+        return {"Authorization": f"{cfg['auth_scheme']} {token}"}
 
     raise ValueError(f"Unknown auth type '{cfg['auth']}' for spec '{spec_name}'")
 
@@ -147,7 +129,7 @@ def _get_operation(spec_name: str, operation_id: str) -> dict:
     return op
 
 
-mcp = FastMCP("vcf-mcp")
+mcp = FastMCP(SERVER_NAME)
 
 
 @mcp.tool()

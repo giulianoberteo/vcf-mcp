@@ -27,6 +27,8 @@ Environment variables (see .env.example):
   SDDC_VERIFY_SSL      optional, default false; set "true" to verify
 
   API_TIMEOUT_SECONDS  optional, default 30
+  MCP_SERVER_NAME      optional, default "vcf-mcp" — name the MCP client
+                       sees for this server
 
 To add a new VCF API: drop its spec file in specs/, add one entry to SPECS
 below, and add its base_url/user/password (and verify_ssl) env vars to
@@ -38,6 +40,8 @@ from pathlib import Path
 
 SPEC_DIR = Path(__file__).parent / "specs"
 
+SERVER_NAME = os.environ.get("MCP_SERVER_NAME", "vcf-mcp")
+
 # Everything the server needs to know about each API lives here — the spec
 # file to parse, where to find its base URL/credentials, and which auth
 # scheme to use. None of these three VCF products agree on how they want to
@@ -47,6 +51,7 @@ SPECS = {
         "file": SPEC_DIR / "fleet-management-api-docs.json",
         "base_url_env": "FLEET_BASE_URL",
         "auth": "basic",
+        "auth_scheme": "Basic",
         "user_env": "FLEET_USER",
         "password_env": "FLEET_PASSWORD",
         "verify_ssl_env": "FLEET_VERIFY_SSL",
@@ -54,19 +59,25 @@ SPECS = {
     "vcf-ops": {
         "file": SPEC_DIR / "vcf-ops-public-api.json",
         "base_url_env": "VCFOPS_BASE_URL",
-        "auth": "ops_token",
+        "auth": "token_acquire",
+        "auth_scheme": "OpsToken",
         "user_env": "VCFOPS_USER",
         "password_env": "VCFOPS_PASSWORD",
         "auth_source_env": "VCFOPS_AUTH_SOURCE",
         "verify_ssl_env": "VCFOPS_VERIFY_SSL",
+        "token_path": "/suite-api/api/auth/token/acquire",
+        "token_response_field": "token",
     },
     "sddc": {
         "file": SPEC_DIR / "vmware-cloud-foundation.json",
         "base_url_env": "SDDC_BASE_URL",
-        "auth": "bearer_token",
+        "auth": "token_acquire",
+        "auth_scheme": "Bearer",
         "user_env": "SDDC_USER",
         "password_env": "SDDC_PASSWORD",
         "verify_ssl_env": "SDDC_VERIFY_SSL",
+        "token_path": "/v1/tokens",
+        "token_response_field": "accessToken",
     },
 }
 
