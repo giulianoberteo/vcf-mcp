@@ -2,6 +2,14 @@
 
 All notable changes to this project are documented in this file.
 
+## [0.3.4] - 2026-07-02
+
+### Changed
+- Expanded the comments inside `search_endpoints` to walk through the
+  scoring logic step by step (building the haystack, substring matching,
+  ranking by match count, reshaping into the compact summary) — no
+  behavior change.
+
 ## [0.3.3] - 2026-07-02
 
 ### Changed

@@ -169,23 +169,52 @@ def search_endpoints(spec: str, query: str, limit: int = 15) -> list[dict]:
         query: keyword(s) to search for, e.g. "certificate", "resources", "symptom"
         limit: max number of results to return (default 15)
     """
+    # norm["operations"] is the full flat list of every operation in this
+    # spec (106-375 of them), already normalized by openapi_utils into the
+    # common shape — regardless of whether the underlying file was Swagger
+    # 2.0 or OpenAPI 3.0. This function's whole job is to narrow that list
+    # down to the handful the caller probably meant.
     norm = _get_spec(spec)
+
+    # Normalize the query the same way we're about to normalize each
+    # operation's text, so "Resources" and "resources" match the same way.
     q = query.lower().strip()
+
+    # scored will hold (relevance_score, operation) pairs — one entry per
+    # operation that actually matched. We build it up first, then sort and
+    # trim it down below.
     scored = []
     for op in norm["operations"]:
-        # Cheap relevance signal: how many times the query shows up across
-        # id/path/summary/tags. Good enough for "find the right endpoint out
-        # of a few hundred" — no need for real ranking here.
+        # Build one big lowercase string out of everything about this
+        # operation a human might plausibly search for: its machine name
+        # (operation_id), its URL path, its one-line description (summary),
+        # and its category labels (tags). "or \"\"" guards fields that can
+        # be None in the spec so we don't crash trying to join() them.
         haystack = " ".join([
             op["operation_id"] or "",
             op["path"],
             op.get("summary") or "",
             " ".join(op.get("tags") or []),
         ]).lower()
+
+        # `in` is a plain substring test — this is deliberately simple
+        # keyword matching, not fuzzy search. If the query text appears
+        # anywhere in that combined string, count it as a match and record
+        # how many times it appears (used as the relevance score below).
         if q in haystack:
             scored.append((haystack.count(q), op))
+
+    # Sort so the operation where the query text showed up most often comes
+    # first — e.g. searching "certificate" ranks an operation whose id, path,
+    # AND summary all mention "certificate" above one where it only appears
+    # once in the summary. The "-x[0]" flips sort() (which is ascending by
+    # default) into descending order by score.
     scored.sort(key=lambda x: -x[0])
 
+    # Finally, reshape the top `limit` matches into the compact summary a
+    # model actually needs to decide which operation to inspect next with
+    # get_endpoint() — not the full parameter/schema detail, just enough to
+    # recognize the right one (id, method, path, summary, tags).
     return [
         {
             "operation_id": op["operation_id"],
