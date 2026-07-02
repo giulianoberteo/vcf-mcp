@@ -2,6 +2,19 @@
 
 All notable changes to this project are documented in this file.
 
+## [0.2.2] - 2026-07-02
+
+### Fixed
+- Added `pyproject.toml` + `uv.lock` — Claude Desktop launches this server via
+  `uv --directory ... run server.py` (see `claude_desktop_config.json`), and
+  with no project file `uv run` fell back to an environment with no
+  dependencies installed, crashing on `import httpx` at startup. Now matches
+  the same `uv`-project convention as the sibling `privateAI-demo` and
+  `personalHRAssistant` servers.
+- Added the missing `env` block for `vcf-mcp` in `claude_desktop_config.json`
+  (it previously had none, so even a successful launch would have had no
+  credentials configured).
+
 ## [0.2.1] - 2026-07-02
 
 ### Added

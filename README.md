@@ -26,6 +26,16 @@ The typical flow a model follows: `search_endpoints` → `get_endpoint` → `cal
 
 ## Setup
 
+With [uv](https://docs.astral.sh/uv/) (recommended — used by `claude_desktop_config.json` below):
+
+```bash
+cd vcf-mcp
+uv sync
+cp .env.example .env   # then fill in real values
+```
+
+Or with plain pip:
+
 ```bash
 cd vcf-mcp
 python3 -m venv .venv && source .venv/bin/activate  # requires Python 3.10+
