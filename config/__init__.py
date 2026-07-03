@@ -38,7 +38,7 @@ it up automatically.
 import os
 from pathlib import Path
 
-SPEC_DIR = Path(__file__).parent / "specs"
+SPEC_DIR = Path(__file__).parent.parent / "specs"
 
 SERVER_NAME = os.environ.get("MCP_SERVER_NAME", "vcf-mcp")
 

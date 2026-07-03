@@ -42,7 +42,7 @@ import httpx
 from mcp.server.fastmcp import FastMCP
 
 from config import SERVER_NAME, SPECS, TIMEOUT, verify_ssl
-from openapi_utils import load_and_normalize_spec
+from config.openapi_utils import load_and_normalize_spec
 
 # Parsed/normalized specs are expensive to build (vcf-ops alone is ~370
 # operations with nested $ref schemas), so we only do it once per spec and

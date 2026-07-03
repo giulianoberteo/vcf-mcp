@@ -2,6 +2,17 @@
 
 All notable changes to this project are documented in this file.
 
+## [0.4.2] - 2026-07-03
+
+### Changed
+- Moved `config.py` and `openapi_utils.py` into a new `config/` package
+  (`config.py` → `config/__init__.py`, `openapi_utils.py` →
+  `config/openapi_utils.py`). `specs/` stays at the project root — it's
+  data, not code. Updated `server.py`'s import accordingly and fixed
+  `SPEC_DIR` to account for the extra directory level. No behavior change;
+  verified all three specs still load and all three still complete real
+  calls against the lab.
+
 ## [0.4.1] - 2026-07-03
 
 ### Changed

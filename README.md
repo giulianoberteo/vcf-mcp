@@ -20,8 +20,8 @@ administration, and more — all reachable through natural-language requests.
 
 All three spec files ship inside `specs/` and are parsed and normalized at
 startup into one common shape, so the server logic doesn't care which spec
-format an operation came from — see `openapi_utils.py` if you're curious how
-that normalization works.
+format an operation came from — see `config/openapi_utils.py` if you're
+curious how that normalization works.
 
 ## How it works
 
