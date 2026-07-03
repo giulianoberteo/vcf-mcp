@@ -1,13 +1,15 @@
 # vcf-mcp
 
-Talk to your VMware Cloud Foundation lab or environment from Claude — ask
+Talk to your VMware Cloud Foundation (VCF) environment from a SaaS AI Agent (like Claude). Ask
 about resource health, pull active alerts, manage certificates, or drive
 lifecycle operations — without hand-writing a single API integration.
 
 `vcf-mcp` is a Python [MCP](https://modelcontextprotocol.io) server that
-exposes three VCF REST APIs to any MCP-compatible client (Claude Desktop,
+exposes VCF REST APIs to any MCP-compatible client (Claude Desktop,
 Claude Code, etc.) by reading their OpenAPI/Swagger specs directly, rather
 than shipping a hand-coded wrapper per endpoint:
+
+For now, it supports three VCF API specs:
 
 - **`fleet`** — VCF Operations Fleet Management API (Swagger 2.0, 106 operations)
 - **`vcf-ops`** — VCF Operations API (OpenAPI 3.0, 370 operations)
