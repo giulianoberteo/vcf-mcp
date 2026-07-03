@@ -2,6 +2,12 @@
 
 All notable changes to this project are documented in this file.
 
+## [0.3.5] - 2026-07-03
+
+### Changed
+- Trimmed the `search_endpoints` comments back down — the previous pass
+  over-explained it line by line. No behavior change.
+
 ## [0.3.4] - 2026-07-02
 
 ### Changed
