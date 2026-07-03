@@ -278,6 +278,45 @@ Add to your `claude_desktop_config.json`:
    builds `GET {VCFOPS_BASE_URL}/suite-api/api/resources?pageSize=50` with the
    auth header attached, executes it, and returns `{status_code, url, method, ok, response}`.
 
+## Screenshots
+
+**Live alerts from VCF Operations** — "check for alerts from VCF Ops" pulls
+all active alerts via `vcf-ops` and groups them by severity (34 alerts: 10
+critical, 8 immediate, 8 warning) straight from the API, no manual lookup.
+
+![Checking for alerts from VCF Ops](screenshots/vc-mcp-get-vcf-ops-alerts.png)
+
+**Enriching alerts with resource names** — alerts only carry opaque resource
+IDs, so a follow-up ("List the alerts details") has the model resolve each
+ID to its real hostname (`vcf-mgmt-esxi01.vlabs.local`, `vcf-edge-tn-01`,
+etc.) by batching lookups across `vcf-ops`, turning a list of UUIDs into a
+readable table with health status and how long each alert has been active.
+
+![Alert details enriched with resource names](screenshots/vc-mcp-get-vcf-ops-alerts-details.png)
+
+**Network pool configuration from SDDC Manager** — "can you list my network
+pool settings in SDDC?" resolves the pool, pulls both its networks
+(vMotion, vSAN) via `sddc`, and sanity-checks the numbers itself (used +
+free IPs against host count, VLAN/MTU correctness) before answering.
+
+![Listing network pool settings](screenshots/vcf-mcp-list-network-pools.png)
+
+**Credential expiration audit across the fleet** — "can you list all
+password and their expiration?" fans out expiration checks across every
+credential type (ESXi SSH, NSX Manager API, vCenter SSO, service accounts)
+via `fleet`, then sorts 17 credentials by urgency — flagging the 3 actually
+expiring soon versus the ones effectively set to never expire.
+
+![Listing password expiration across the fleet](screenshots/vcf-mcp-list-password-expiration.png)
+
+**Kicking off and polling a long-running task** — "Can you run an SDDC
+backup and keep polling the task until it finishes?" triggers the backup via
+`sddc`, then polls the task status on its own until all 8 subtasks
+(quiesce, backup database/config, package & encrypt, save to SFTP, retention
+cleanup, unquiesce) report success — no manual follow-up needed.
+
+![Running and polling an SDDC backup task](screenshots/vcf-mcp-run-backup.png)
+
 ## Known limitations
 
 - **Multipart/file-upload endpoints**: one Fleet endpoint

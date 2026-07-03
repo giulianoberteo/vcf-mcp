@@ -2,6 +2,15 @@
 
 All notable changes to this project are documented in this file.
 
+## [0.4.6] - 2026-07-03
+
+### Added
+- `screenshots/` with 5 real usage examples, embedded in a new README
+  "Screenshots" section with descriptions: live VCF Operations alerts,
+  alert-detail enrichment (resource ID → hostname resolution), SDDC Manager
+  network pool config, a fleet-wide credential expiration audit, and
+  triggering + polling an SDDC backup task to completion.
+
 ## [0.4.5] - 2026-07-03
 
 ### Changed
