@@ -2,6 +2,15 @@
 
 All notable changes to this project are documented in this file.
 
+## [0.4.7] - 2026-07-03
+
+### Changed
+- Pretty-printed `specs/fleet-management-api-docs.json` and
+  `specs/vcf-ops-public-api.json` (previously single-line minified JSON,
+  unreadable even on GitHub). `specs/vmware-cloud-foundation.json` was
+  already formatted. Whitespace-only change — verified operation counts
+  (106/370/375) and live calls against the lab are unaffected.
+
 ## [0.4.6] - 2026-07-03
 
 ### Added
