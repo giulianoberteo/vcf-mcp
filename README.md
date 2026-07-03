@@ -257,6 +257,17 @@ Add to your `claude_desktop_config.json`:
 }
 ```
 
+> **⚠️ Security note:** `claude_desktop_config.json` stores these
+> credentials in **plain text on disk** — that's true of the `env` block
+> for any MCP server, not something specific to this one, but worth calling
+> out explicitly since it's real VCF admin credentials sitting in a JSON
+> file. This project is currently a prototype built for a personal lab; it
+> hasn't been hardened for anything beyond that. Don't point it at
+> production credentials as-is. A proper secrets-management approach (OS
+> keychain, a secrets manager, short-lived tokens injected at launch rather
+> than stored, etc.) is something to revisit before using this anywhere
+> more sensitive than a lab.
+
 ## Example interaction
 
 1. `search_endpoints(spec="vcf-ops", query="resources")` →

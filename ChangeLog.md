@@ -2,6 +2,15 @@
 
 All notable changes to this project are documented in this file.
 
+## [0.4.5] - 2026-07-03
+
+### Changed
+- Added a security note to the README flagging that `claude_desktop_config.json`
+  stores credentials in plain text on disk, and that this project is
+  currently a prototype for personal lab use — not yet hardened for
+  production credentials. A proper secrets-management approach is a
+  planned follow-up, not implemented yet.
+
 ## [0.4.4] - 2026-07-03
 
 ### Changed
