@@ -2,6 +2,14 @@
 
 All notable changes to this project are documented in this file.
 
+## [0.4.1] - 2026-07-03
+
+### Changed
+- Added a concrete before/after example to the README's spec-normalization
+  explanation — a real `fleet` operation (`saveDepotConfigurationUsingPOST`)
+  shown in its raw Swagger 2.0 form next to what `_normalize_swagger2` turns
+  it into, with the three specific transformations called out.
+
 ## [0.4.0] - 2026-07-03
 
 ### Fixed

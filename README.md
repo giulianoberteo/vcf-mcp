@@ -69,6 +69,77 @@ schema, regardless of which spec it came from. The result is cached in
 memory (`server._cache`) so a ~370-operation spec is only parsed once per
 process, not once per tool call.
 
+<details>
+<summary>Concrete before/after example (from the <code>fleet</code> spec)</summary>
+
+Raw Swagger 2.0, straight from `specs/fleet-management-api-docs.json` —
+`paths["/lcm/lcops/api/depot-configuration/{depotType}"]["post"]`:
+
+```json
+{
+  "operationId": "saveDepotConfigurationUsingPOST",
+  "summary": "Save Depot Configuration",
+  "tags": ["Settings Controller"],
+  "parameters": [
+    {
+      "in": "body",
+      "name": "depotConfigurationDTO",
+      "required": true,
+      "schema": { "$ref": "#/definitions/DepotConfigurationDTO" }
+    },
+    { "name": "depotType", "in": "path", "required": true, "type": "string", "description": "depotType" }
+  ],
+  "responses": { "200": {...}, "201": {...}, "400": {...}, "...": "6 more" }
+}
+```
+
+After `_normalize_swagger2`, `by_operation_id["saveDepotConfigurationUsingPOST"]`:
+
+```json
+{
+  "operation_id": "saveDepotConfigurationUsingPOST",
+  "method": "POST",
+  "path": "/lcm/lcops/api/depot-configuration/{depotType}",
+  "summary": "Save Depot Configuration",
+  "tags": ["Settings Controller"],
+  "parameters": [
+    { "name": "depotType", "in": "path", "required": true, "type": "string", "description": "depotType" }
+  ],
+  "request_body_schema": {
+    "type": "object",
+    "properties": {
+      "depotType": { "type": "string" },
+      "directoryPath": { "type": "string" },
+      "isEnabled": { "type": "boolean" },
+      "offlineDepotUrl": { "type": "string" },
+      "password": { "type": "string" },
+      "trustCertificate": { "type": "boolean" },
+      "userName": { "type": "string" }
+    },
+    "title": "DepotConfigurationDTO"
+  }
+}
+```
+
+Three changes, matching the three things the normalizer does:
+
+1. The `in: "body"` parameter is pulled out of `parameters` entirely and
+   becomes its own `request_body_schema` key — every other parameter
+   (`path`, `query`, `formData`) stays put.
+2. `{"$ref": "#/definitions/DepotConfigurationDTO"}` is expanded into the
+   real object shape (`properties: {depotType, directoryPath, ...}`) by
+   `_resolve_schema` following the ref into `spec["definitions"]`, so
+   nothing downstream ever has to chase a `$ref` itself.
+3. `responses` is dropped — the normalized shape only carries what's needed
+   to *make* the call, not what the server might send back.
+
+An OpenAPI 3.0 operation (`vcf-ops`, `sddc`) starts from a different raw
+shape (body under `requestBody`, refs under `#/components/schemas/...`), but
+`_normalize_openapi3` produces this exact same output structure — which is
+why `server.py` never needs to know or care which spec format it came from.
+
+</details>
+
 **2. Find the right operation by keyword, not by knowing the API.** A model
 doesn't need to already know an operation's exact name — `search_endpoints`
 scores every operation by how many times the query string appears across
