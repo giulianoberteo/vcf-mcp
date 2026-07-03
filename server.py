@@ -31,7 +31,7 @@ never written to disk):
               for the life of the process (same acquire-once-and-cache
               pattern as vcf-ops, just a different endpoint/response shape).
 
-See config.py for the full list of environment variables each spec reads
+See config/settings.py for the full list of environment variables each spec reads
 (base URL, credentials, SSL verification) and how to add a new API spec.
 """
 import base64
@@ -41,7 +41,7 @@ from typing import Any, Optional
 import httpx
 from mcp.server.fastmcp import FastMCP
 
-from config import SERVER_NAME, SPECS, TIMEOUT, verify_ssl
+from config.settings import SERVER_NAME, SPECS, TIMEOUT, verify_ssl
 from config.openapi_utils import load_and_normalize_spec
 
 # Parsed/normalized specs are expensive to build (vcf-ops alone is ~370

@@ -2,6 +2,17 @@
 
 All notable changes to this project are documented in this file.
 
+## [0.4.3] - 2026-07-03
+
+### Changed
+- Renamed `config/__init__.py` to `config/settings.py` — `__init__.py` is
+  the Python convention for "this directory is a package," but a file with
+  that name gives no hint it actually holds `SPECS`/`TIMEOUT`/`verify_ssl`.
+  `config/__init__.py` is now empty (just marks the package);
+  `server.py` imports `from config.settings import ...`. No behavior
+  change; verified all specs still load and a live sddc call still
+  succeeds.
+
 ## [0.4.2] - 2026-07-03
 
 ### Changed
