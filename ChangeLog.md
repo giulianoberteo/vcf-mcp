@@ -2,6 +2,15 @@
 
 All notable changes to this project are documented in this file.
 
+## [0.4.4] - 2026-07-03
+
+### Changed
+- Removed the now-empty `config/__init__.py`. Since Python 3.3, a directory
+  without one still works as an importable "namespace package" — nothing
+  in this repo relies on `config` being an explicit package, so there was
+  no reason to keep it. Verified `server.py` still imports and boots clean
+  without it.
+
 ## [0.4.3] - 2026-07-03
 
 ### Changed
