@@ -49,10 +49,12 @@ from openapi_utils import load_and_normalize_spec
 # keep the result around for the life of the process.
 _cache: dict[str, dict] = {}
 
-# Both OpsTokens (6-hour validity, refreshed on use) and SDDC Manager access
-# tokens are cheap to hold onto for the life of the process, so there's no
-# reason to re-acquire one on every call. Keyed by spec name; never written
-# to disk.
+# Cached so we don't re-acquire a token on every call — vcf-ops OpsTokens are
+# valid 6 hours, but sddc's are only valid 1 hour, so a long-running process
+# WILL end up holding an expired token. We don't track expiry proactively;
+# instead call_api treats a 401 as "cached token is stale" and clears it here
+# so the next _build_auth_header() re-acquires. Keyed by spec name; never
+# written to disk.
 _token_cache: dict[str, str] = {}
 
 
@@ -288,22 +290,25 @@ def call_api(
     # the spec itself — the caller only has to worry about the host.
     url = base_url.rstrip("/") + norm["server_prefix"] + resolved_path
 
-    headers = {"Accept": "application/json"}
-    headers.update(_build_auth_header(spec, base_url))
-    headers.update(extra_headers)  # let the caller override anything above if truly needed
-
-    request_kwargs: dict[str, Any] = {
-        "params": query_params,
-        "headers": headers,
-    }
+    request_kwargs: dict[str, Any] = {"params": query_params}
     # Only attach a JSON body for operations that actually accept one —
     # sending a stray body on a GET has caused rejected requests before.
     if op["request_body_schema"] is not None or op["method"] in ("POST", "PUT", "PATCH"):
         if body:
             request_kwargs["json"] = body
 
+    # A cached token can go stale mid-process (sddc's are only valid 1 hour)
+    # without us knowing in advance, so if the server rejects it we clear the
+    # cache and retry once with a freshly acquired token before giving up.
     with httpx.Client(timeout=TIMEOUT, verify=verify_ssl(spec)) as client:
-        resp = client.request(op["method"], url, **request_kwargs)
+        for attempt in range(2):
+            headers = {"Accept": "application/json"}
+            headers.update(_build_auth_header(spec, base_url))
+            headers.update(extra_headers)  # let the caller override anything above if truly needed
+            resp = client.request(op["method"], url, headers=headers, **request_kwargs)
+            if resp.status_code != 401 or attempt == 1:
+                break
+            _token_cache.pop(spec, None)
 
     try:
         parsed = resp.json()

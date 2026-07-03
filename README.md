@@ -136,11 +136,16 @@ at request time, per each API's own auth scheme:
   rebuilt from credentials on every call. See
   [Broadcom KB 409715](https://knowledge.broadcom.com/external/article/409715/how-to-authorize-vcf-operations-fleet-ma.html).
 - **`vcf-ops`** — exchanges the username/password for a short-lived OpsToken
-  via `POST /api/auth/token/acquire`, then caches that token **in memory
-  only** (never written to disk) for the life of the process. Mirrors
+  (6-hour validity) via `POST /api/auth/token/acquire`, then caches that
+  token **in memory only** (never written to disk). Mirrors
   `_acquire_ops_token` in `privateAI-demo/mcp/server.py`.
-- **`sddc`** — exchanges the username/password for a bearer access token via
-  `POST /v1/tokens`, then caches it in memory the same way as `vcf-ops`.
+- **`sddc`** — exchanges the username/password for a bearer access token
+  (1-hour validity) via `POST /v1/tokens`, cached the same way as `vcf-ops`.
+
+Cached tokens aren't proactively refreshed on a timer — if a call comes back
+`401`, `call_api` clears that spec's cached token and retries once with a
+freshly acquired one before giving up, so a token going stale mid-process
+(sddc's 1-hour window is the one to watch) self-heals on the next call.
 
 ## Running standalone
 

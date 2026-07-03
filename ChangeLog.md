@@ -2,6 +2,20 @@
 
 All notable changes to this project are documented in this file.
 
+## [0.4.0] - 2026-07-03
+
+### Fixed
+- **Stale cached token never refreshed.** `_token_cache` held a spec's
+  acquired token for the entire process lifetime with no expiry awareness.
+  sddc's bearer tokens are only valid ~1 hour (confirmed by decoding a live
+  JWT's `iat`/`exp`) — well under vcf-ops's 6-hour OpsToken window — so a
+  vcf-mcp process running longer than that kept sending an expired sddc
+  token on every call, requiring a manual restart to recover. `call_api` now
+  treats a `401` response as "this cached token is stale," clears it, and
+  retries the request once with a freshly acquired token before giving up.
+  Verified with a mocked stale-token-then-401-then-refresh sequence, and
+  confirmed all three specs still work live end-to-end.
+
 ## [0.3.5] - 2026-07-03
 
 ### Changed
