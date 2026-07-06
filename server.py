@@ -41,7 +41,8 @@ from typing import Any, Optional
 import httpx
 from mcp.server.fastmcp import FastMCP
 
-from config.settings import SERVER_NAME, SPECS, TIMEOUT, verify_ssl
+from config import vault_client
+from config.settings import SERVER_NAME, SPECS, TIMEOUT, get_password, verify_ssl
 from config.openapi_utils import load_and_normalize_spec
 
 # Parsed/normalized specs are expensive to build (vcf-ops alone is ~370
@@ -90,11 +91,11 @@ def _build_auth_header(spec_name: str, base_url: str) -> dict[str, str]:
     header, using whichever scheme that particular API actually expects."""
     cfg = SPECS[spec_name]
     user = os.environ.get(cfg["user_env"], "")
-    password = os.environ.get(cfg["password_env"], "")
+    password = get_password(spec_name)
     if not user or not password:
         raise ValueError(
-            f"{cfg['user_env']} and {cfg['password_env']} must both be set to call "
-            f"the '{spec_name}' API."
+            f"{cfg['user_env']} must be set, and a password must be available (via "
+            f"Vault or {cfg['password_env']}), to call the '{spec_name}' API."
         )
 
     if cfg["auth"] == "basic":
@@ -139,7 +140,8 @@ def list_specs() -> dict:
     """
     List the API specs available on this server ('fleet', 'vcf-ops', and 'sddc'), including
     title, version, how many operations each has, and whether the required base URL
-    and credential environment variables are currently configured.
+    and credentials are currently configured (password via Vault or a plaintext
+    env var — see credential_source).
     """
     out = {}
     for name, cfg in SPECS.items():
@@ -152,8 +154,9 @@ def list_specs() -> dict:
             "base_url_env": cfg["base_url_env"],
             "user_env": cfg["user_env"],
             "password_env": cfg["password_env"],
+            "credential_source": "vault" if vault_client.is_configured() else "env",
             "base_url_configured": bool(os.environ.get(cfg["base_url_env"])),
-            "credentials_configured": bool(os.environ.get(cfg["user_env"])) and bool(os.environ.get(cfg["password_env"])),
+            "credentials_configured": bool(os.environ.get(cfg["user_env"])) and bool(get_password(name)),
         }
     return out
 

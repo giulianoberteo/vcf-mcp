@@ -263,10 +263,70 @@ Add to your `claude_desktop_config.json`:
 > out explicitly since it's real VCF admin credentials sitting in a JSON
 > file. This project is currently a prototype built for a personal lab; it
 > hasn't been hardened for anything beyond that. Don't point it at
-> production credentials as-is. A proper secrets-management approach (OS
-> keychain, a secrets manager, short-lived tokens injected at launch rather
-> than stored, etc.) is something to revisit before using this anywhere
-> more sensitive than a lab.
+> production credentials as-is. See "Vault-backed secrets" below for an
+> alternative that keeps passwords out of this file entirely.
+
+## Vault-backed secrets (optional)
+
+Instead of `FLEET_PASSWORD`/`VCFOPS_PASSWORD`/`SDDC_PASSWORD` sitting in
+`claude_desktop_config.json`, you can store them in
+[HashiCorp Vault](https://www.hashicorp.com/products/vault) and have
+`vcf-mcp` fetch them at request time. What still ends up in the config file
+is a Vault **AppRole** `role_id`/`secret_id` pair — but that pair is:
+
+- **scoped read-only** to `secret/vcf-mcp/*` (nothing else in the vault,
+  verified: an AppRole token for this role can't read a secret stored
+  under a different path — it gets a `403`),
+- **short-lived** (the token it exchanges for has a 1-hour TTL, 4-hour
+  max — unlike a VCF password, which doesn't expire on its own),
+- **revocable and rotatable independently** of the actual VCF credentials,
+  and every read is audit-logged by Vault.
+
+Compromising the `role_id`/`secret_id` pair doesn't hand over VCF admin
+passwords directly — it hands over read access to one Vault path, which can
+be revoked without touching VCF itself.
+
+### Setup
+
+```bash
+# 1. Install and start Vault (dev mode, for trying this out locally —
+#    NOT persistent and NOT how you'd run a real Vault):
+brew install hashicorp/tap/vault
+vault server -dev -dev-root-token-id="vcf-mcp-dev-root"
+
+# 2. In another shell, provision the policy/AppRole/secrets — reads your
+#    existing .env for the actual passwords, so you don't retype them:
+export VAULT_ADDR=http://127.0.0.1:8200
+export VAULT_TOKEN=vcf-mcp-dev-root      # the privileged setup token, NOT what vcf-mcp uses
+cd vcf-mcp
+uv run python -m config.vault_setup
+```
+
+That prints a `role_id`/`secret_id` pair. Put those, plus `VAULT_ADDR`, into
+`claude_desktop_config.json`'s `env` block, and **remove**
+`FLEET_PASSWORD`/`VCFOPS_PASSWORD`/`SDDC_PASSWORD` entirely:
+
+```json
+"env": {
+  "FLEET_BASE_URL": "...", "FLEET_USER": "...",
+  "VCFOPS_BASE_URL": "...", "VCFOPS_USER": "...",
+  "SDDC_BASE_URL": "...", "SDDC_USER": "...",
+  "VAULT_ADDR": "http://127.0.0.1:8200",
+  "VAULT_ROLE_ID": "...",
+  "VAULT_SECRET_ID": "..."
+}
+```
+
+`config/settings.get_password()` checks for Vault first and falls back to
+the plaintext `*_PASSWORD` env vars if Vault isn't configured — so this is
+fully optional, not a breaking change to the setup in "Setup" above.
+
+**Dev mode caveats** (matter if you're actually adopting this, not just
+trying it): `vault server -dev` is in-memory (all secrets lost on
+restart) and unsealed with a single key — fine for proving out the
+integration, not how you'd run this for real. A real deployment wants
+persistent storage (Vault's integrated Raft storage is the simplest
+option), TLS, and a proper unseal/auto-unseal strategy.
 
 ## Example interaction
 

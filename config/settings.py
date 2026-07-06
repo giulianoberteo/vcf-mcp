@@ -30,6 +30,10 @@ Environment variables (see .env.example):
   MCP_SERVER_NAME      optional, default "vcf-mcp" — name the MCP client
                        sees for this server
 
+  VAULT_ADDR, VAULT_ROLE_ID, VAULT_SECRET_ID — optional; if all three are
+  set, passwords are read from HashiCorp Vault instead of the *_PASSWORD
+  env vars above. See config/vault_client.py.
+
 To add a new VCF API: drop its spec file in specs/, add one entry to SPECS
 below, and add its base_url/user/password (and verify_ssl) env vars to
 .env.example. Everything else — search, get_endpoint, call_api, auth — picks
@@ -37,6 +41,8 @@ it up automatically.
 """
 import os
 from pathlib import Path
+
+from config import vault_client
 
 SPEC_DIR = Path(__file__).parent.parent / "specs"
 
@@ -88,3 +94,12 @@ def verify_ssl(spec_name: str) -> bool:
     """Defaults to False — lab VCF instances typically run self-signed certs.
     Set <SPEC>_VERIFY_SSL=true to enforce verification."""
     return os.environ.get(SPECS[spec_name]["verify_ssl_env"], "").strip().lower() == "true"
+
+
+def get_password(spec_name: str) -> str:
+    """Password for a spec, from Vault if configured, else the plaintext
+    *_PASSWORD env var (the original behavior, kept as a fallback so this
+    still works without Vault set up at all)."""
+    if vault_client.is_configured():
+        return vault_client.get_password(spec_name)
+    return os.environ.get(SPECS[spec_name]["password_env"], "")

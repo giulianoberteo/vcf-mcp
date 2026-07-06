@@ -2,6 +2,44 @@
 
 All notable changes to this project are documented in this file.
 
+## [0.5.0-dev] - 2026-07-06 (branch: dev-hashivault-secureauth)
+
+### Added
+- **Optional HashiCorp Vault-backed secret retrieval**, so VCF passwords
+  don't have to sit in plaintext in `claude_desktop_config.json`:
+  - `config/vault_client.py` — AppRole-based auth to Vault, reads a spec's
+    password from KV v2 at `secret/vcf-mcp/<spec>`, caches the Vault client
+    token for the process lifetime.
+  - `config/settings.get_password(spec_name)` — tries Vault first, falls
+    back to the plaintext `*_PASSWORD` env var if Vault isn't configured
+    (`VAULT_ADDR`/`VAULT_ROLE_ID`/`VAULT_SECRET_ID` unset). Fully backward
+    compatible — no existing setup breaks.
+  - `config/vault_setup.py` — one-shot provisioning script: creates a
+    policy scoped to `secret/vcf-mcp/*` only, an AppRole bound to it
+    (1h token TTL / 4h max), and writes each spec's password (read from
+    the local `.env`) into Vault. Prints the resulting `role_id`/`secret_id`
+    to put in `claude_desktop_config.json` instead of the raw passwords.
+  - `server.py`'s `_build_auth_header` and `list_specs()` now go through
+    `get_password()` instead of reading `*_PASSWORD` directly;
+    `list_specs()` reports `credential_source: "vault"` or `"env"`.
+  - README: new "Vault-backed secrets" section with setup steps and an
+    explicit statement of what compromising the AppRole pair does and
+    doesn't expose.
+  - Added `hvac>=2.3.0` dependency.
+
+### Verified
+- Backward compatibility: with no Vault env vars set, all three specs
+  still authenticate via plaintext `.env` exactly as before.
+- Vault path: with `*_PASSWORD` env vars deliberately unset and only
+  `VAULT_ADDR`/`VAULT_ROLE_ID`/`VAULT_SECRET_ID` provided, all three specs
+  (`fleet`, `vcf-ops`, `sddc`) completed real calls against the lab with
+  passwords sourced entirely from Vault.
+- Policy scoping: an AppRole token for the `vcf-mcp` role gets a `403`
+  reading a secret written under an unrelated path (`secret/some-other-app/*`),
+  confirming it can't see anything outside `secret/vcf-mcp/*`.
+- `config/vault_setup.py` tested end-to-end against a freshly started,
+  completely unconfigured dev-mode Vault instance.
+
 ## [0.4.7] - 2026-07-03
 
 ### Changed
