@@ -41,6 +41,7 @@ See config/settings.py for the full list of environment variables each spec read
 (base URL, credentials, SSL verification) and how to add a new API spec.
 """
 import base64
+import json
 import os
 from typing import Any, Optional
 
@@ -163,6 +164,9 @@ def _get_operation(spec_name: str, operation_id: str) -> dict:
     return op
 
 
+READ_ONLY = os.environ.get("VCF_MCP_READ_ONLY", "").strip().lower() == "true"
+MAX_RESPONSE_CHARS = int(os.environ.get("VCF_MCP_MAX_RESPONSE_CHARS", "0") or 0)
+
 mcp = FastMCP(SERVER_NAME)
 
 
@@ -281,6 +285,13 @@ def call_api(
     cfg = SPECS[spec]
     norm = _get_spec(spec)
 
+    # Optional guard for weaker/local models: block anything that isn't a read.
+    if READ_ONLY and op["method"] not in ("GET", "HEAD", "OPTIONS"):
+        raise ValueError(
+            f"{operation_id} is a {op['method']} and this server is in read-only mode "
+            f"(VCF_MCP_READ_ONLY=true). Only GET operations are allowed."
+        )
+
     base_url = os.environ.get(cfg["base_url_env"])
     if not base_url:
         raise ValueError(
@@ -349,13 +360,24 @@ def call_api(
         # fall back to raw text rather than blowing up on a non-error response.
         parsed = resp.text
 
-    return {
+    result = {
         "status_code": resp.status_code,
         "url": str(resp.url),
         "method": op["method"],
         "ok": resp.is_success,
         "response": parsed,
     }
+
+    # Optional cap so huge inventories don't flood a small model's context.
+    if MAX_RESPONSE_CHARS:
+        raw = json.dumps(parsed, default=str)
+        if len(raw) > MAX_RESPONSE_CHARS:
+            result["response"] = raw[:MAX_RESPONSE_CHARS]
+            result["truncated"] = (
+                f"Response was {len(raw)} chars, cut to {MAX_RESPONSE_CHARS}. "
+                "Narrow it with query_params (e.g. pageSize/limit/name filters) instead of re-fetching."
+            )
+    return result
 
 
 if __name__ == "__main__":
