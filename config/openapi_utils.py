@@ -19,8 +19,10 @@ Common operation shape:
 }
 """
 import json
+import re
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
 import yaml
 
@@ -74,6 +76,26 @@ def _resolve_schema(root: dict, schema: Any, seen: set | None = None, depth: int
         return [_resolve_schema(root, item, seen, depth + 1, max_depth) for item in schema]
 
     return schema
+
+
+def _server_prefix(servers: list) -> str:
+    """Pull the base path prefix (e.g. "/suite-api", "/api") out of an
+    OpenAPI 3 `servers` entry, regardless of whether the url is a bare
+    relative path ("/suite-api") or a full templated URL
+    ("https://{host}/api", "https://{vcenter-host}/sdk/vim25/{release}").
+    The env var base URL always supplies the actual host, so only the path
+    portion (with any {var} placeholders filled from their declared
+    defaults) matters here."""
+    if not servers:
+        return ""
+    server = servers[0]
+    url = server.get("url", "")
+    for name, var in server.get("variables", {}).items():
+        default = var.get("default", "")
+        url = url.replace("{" + name + "}", str(default))
+
+    path = urlsplit(url).path if re.match(r"^[a-zA-Z][a-zA-Z0-9+.-]*://", url) else url
+    return path.rstrip("/")
 
 
 def _normalize_swagger2(spec: dict) -> dict:
@@ -171,14 +193,7 @@ def _normalize_openapi3(spec: dict) -> dict:
                 "request_body_schema": request_body_schema,
             })
 
-    servers = spec.get("servers", [])
-    server_prefix = ""
-    if servers:
-        url = servers[0].get("url", "")
-        # Only use it if it's a relative path prefix (e.g. "/suite-api").
-        # Absolute URLs (http://...) are ignored in favor of the env var base URL.
-        if url.startswith("/"):
-            server_prefix = url.rstrip("/")
+    server_prefix = _server_prefix(spec.get("servers", []))
 
     return {
         "title": spec.get("info", {}).get("title", ""),
