@@ -22,6 +22,8 @@ import json
 from pathlib import Path
 from typing import Any
 
+import yaml
+
 
 def _resolve_ref(root: dict, ref: str) -> Any:
     """Resolve a local JSON $ref like '#/definitions/Foo' or '#/components/schemas/Foo'."""
@@ -188,7 +190,12 @@ def _normalize_openapi3(spec: dict) -> dict:
 
 
 def load_and_normalize_spec(file_path: Path) -> dict:
-    spec = json.loads(Path(file_path).read_text())
+    file_path = Path(file_path)
+    text = file_path.read_text()
+    if file_path.suffix.lower() in (".yaml", ".yml"):
+        spec = yaml.safe_load(text)
+    else:
+        spec = json.loads(text)
     if "swagger" in spec:
         return _normalize_swagger2(spec)
     if "openapi" in spec:

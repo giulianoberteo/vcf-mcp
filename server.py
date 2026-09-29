@@ -1,10 +1,12 @@
 """
-MCP server that dynamically constructs and executes API calls against three
+MCP server that dynamically constructs and executes API calls against
 VMware Cloud Foundation API specs:
 
-  - "fleet"    : VCF Operations Fleet Management API (Swagger 2.0)
-  - "vcf-ops"  : VCF Operations API                   (OpenAPI 3.0)
-  - "sddc"     : VCF (SDDC Manager) API               (OpenAPI 3.0)
+  - "fleet"    : VCF Operations Fleet Management API   (Swagger 2.0)
+  - "vcf-ops"  : VCF Operations API                     (OpenAPI 3.0)
+  - "sddc"     : VCF (SDDC Manager) API                 (OpenAPI 3.0)
+  - "vcenter"  : vSphere Automation (REST) API          (OpenAPI 3.0, YAML)
+  - "vi-json"  : vSphere legacy VIM API as JSON          (OpenAPI 3.0, YAML)
 
 Rather than generating one MCP tool per endpoint (300+ of them), this server
 exposes a small, fixed set of tools that let a model:
@@ -30,6 +32,10 @@ never written to disk):
               token via POST /v1/tokens, then caching that token in memory
               for the life of the process (same acquire-once-and-cache
               pattern as vcf-ops, just a different endpoint/response shape).
+  - "vcenter" and "vi-json" (same vCenter appliance, same session mechanism)
+              authenticate by POSTing HTTP Basic to /api/session and caching
+              the returned session ID, sent back as a custom
+              vmware-api-session-id header rather than Authorization.
 
 See config/settings.py for the full list of environment variables each spec reads
 (base URL, credentials, SSL verification) and how to add a new API spec.
@@ -85,6 +91,27 @@ def _acquire_token(spec_name: str, base_url: str, user: str, password: str) -> s
     return token
 
 
+def _acquire_vcenter_session_token(spec_name: str, base_url: str, user: str, password: str) -> str:
+    """vCenter's session login (POST /api/session) is its own shape: the
+    login call itself takes HTTP Basic (no JSON body), and the response is
+    a bare JSON string — the session ID — not wrapped in a named field like
+    vcf-ops/sddc. 'vcenter' and 'vi-json' share this since both specs are
+    served by the same vCenter appliance under the same session mechanism."""
+    if spec_name in _token_cache:
+        return _token_cache[spec_name]
+    cfg = SPECS[spec_name]
+    encoded = base64.b64encode(f"{user}:{password}".encode()).decode()
+    with httpx.Client(timeout=TIMEOUT, verify=verify_ssl(spec_name)) as client:
+        resp = client.post(
+            f"{base_url.rstrip('/')}{cfg['token_path']}",
+            headers={"Authorization": f"Basic {encoded}", "Accept": "application/json"},
+        )
+        resp.raise_for_status()
+        token = resp.json()
+    _token_cache[spec_name] = token
+    return token
+
+
 def _build_auth_header(spec_name: str, base_url: str) -> dict[str, str]:
     """Turn the configured username/password for a spec into an Authorization
     header, using whichever scheme that particular API actually expects."""
@@ -106,6 +133,11 @@ def _build_auth_header(spec_name: str, base_url: str) -> dict[str, str]:
     if cfg["auth"] == "token_acquire":
         token = _acquire_token(spec_name, base_url, user, password)
         return {"Authorization": f"{cfg['auth_scheme']} {token}"}
+
+    if cfg["auth"] == "vcenter_session":
+        # Session ID rides on its own custom header, not Authorization.
+        token = _acquire_vcenter_session_token(spec_name, base_url, user, password)
+        return {cfg["session_header"]: token}
 
     raise ValueError(f"Unknown auth type '{cfg['auth']}' for spec '{spec_name}'")
 
@@ -137,7 +169,7 @@ mcp = FastMCP(SERVER_NAME)
 @mcp.tool()
 def list_specs() -> dict:
     """
-    List the API specs available on this server ('fleet', 'vcf-ops', and 'sddc'), including
+    List the API specs available on this server ('fleet', 'vcf-ops', 'sddc', 'vcenter', and 'vi-json'), including
     title, version, how many operations each has, and whether the required base URL
     and credential environment variables are currently configured.
     """
@@ -161,13 +193,13 @@ def list_specs() -> dict:
 @mcp.tool()
 def search_endpoints(spec: str, query: str, limit: int = 15) -> list[dict]:
     """
-    Search for API operations within a spec ('fleet', 'vcf-ops', or 'sddc') by keyword.
+    Search for API operations within a spec ('fleet', 'vcf-ops', 'sddc', 'vcenter', or 'vi-json') by keyword.
     Matches against operation_id, path, summary, and tags. Use this first to find
     the operation_id you need, then call get_endpoint for full details before
     calling call_api.
 
     Args:
-        spec: 'fleet', 'vcf-ops', or 'sddc'
+        spec: 'fleet', 'vcf-ops', 'sddc', 'vcenter', or 'vi-json'
         query: keyword(s) to search for, e.g. "certificate", "resources", "symptom"
         limit: max number of results to return (default 15)
     """
@@ -211,7 +243,7 @@ def get_endpoint(spec: str, operation_id: str) -> dict:
     exactly what to pass into call_api.
 
     Args:
-        spec: 'fleet', 'vcf-ops', or 'sddc'
+        spec: 'fleet', 'vcf-ops', 'sddc', 'vcenter', or 'vi-json'
         operation_id: the operation_id, as returned by search_endpoints
     """
     return _get_operation(spec, operation_id)
@@ -235,7 +267,7 @@ def call_api(
     Authorization header automatically from the configured API token env var.
 
     Args:
-        spec: 'fleet', 'vcf-ops', or 'sddc'
+        spec: 'fleet', 'vcf-ops', 'sddc', 'vcenter', or 'vi-json'
         operation_id: the operation_id, as returned by search_endpoints
         path_params: values for any {placeholders} in the URL path, e.g. {"id": "abc-123"}
         query_params: query string parameters, e.g. {"pageSize": 100}

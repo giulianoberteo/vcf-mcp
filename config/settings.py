@@ -21,10 +21,17 @@ Environment variables (see .env.example):
   SDDC_USER            SDDC Manager username, e.g. administrator@vsphere.local
   SDDC_PASSWORD        SDDC Manager password
 
+  VCENTER_BASE_URL     e.g. https://vcenter.example.com (required to call
+                       vcenter/vi-json endpoints; both specs hit the same
+                       vCenter appliance and share one set of credentials)
+  VCENTER_USER         vCenter username, e.g. administrator@vsphere.local
+  VCENTER_PASSWORD     vCenter password
+
   FLEET_VERIFY_SSL     optional, default false (lab VCF instances typically
                        run self-signed certs); set "true" to verify
   VCFOPS_VERIFY_SSL    optional, default false; set "true" to verify
   SDDC_VERIFY_SSL      optional, default false; set "true" to verify
+  VCENTER_VERIFY_SSL   optional, default false; set "true" to verify
 
   API_TIMEOUT_SECONDS  optional, default 30
   MCP_SERVER_NAME      optional, default "vcf-mcp" — name the MCP client
@@ -78,6 +85,36 @@ SPECS = {
         "verify_ssl_env": "SDDC_VERIFY_SSL",
         "token_path": "/v1/tokens",
         "token_response_field": "accessToken",
+    },
+    # vCenter's REST session API (POST /api/session) takes HTTP Basic on the
+    # login call itself (no JSON body) and hands back the session ID as a
+    # bare JSON string — not a named field like vcf-ops/sddc — then wants
+    # that ID echoed back on every call as a custom header, not Authorization.
+    # See server._acquire_vcenter_session_token / _build_auth_header.
+    "vcenter": {
+        "file": SPEC_DIR / "vcenter.yaml",
+        "base_url_env": "VCENTER_BASE_URL",
+        "auth": "vcenter_session",
+        "session_header": "vmware-api-session-id",
+        "user_env": "VCENTER_USER",
+        "password_env": "VCENTER_PASSWORD",
+        "verify_ssl_env": "VCENTER_VERIFY_SSL",
+        "token_path": "/api/session",
+    },
+    # Same vCenter appliance, but the legacy VIM ("Virtual Infrastructure")
+    # object model exposed as JSON instead of SOAP. Authenticates the same
+    # way as 'vcenter' above (same session mechanism), just a much larger,
+    # lower-level API surface — prefer 'vcenter' unless you specifically
+    # need a VIM managed-object operation.
+    "vi-json": {
+        "file": SPEC_DIR / "vi-json.yaml",
+        "base_url_env": "VCENTER_BASE_URL",
+        "auth": "vcenter_session",
+        "session_header": "vmware-api-session-id",
+        "user_env": "VCENTER_USER",
+        "password_env": "VCENTER_PASSWORD",
+        "verify_ssl_env": "VCENTER_VERIFY_SSL",
+        "token_path": "/api/session",
     },
 }
 
